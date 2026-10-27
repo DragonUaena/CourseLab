@@ -1,0 +1,193 @@
+from app.course_crew import audit_plan
+from app.report import render_report
+
+DEMO_PROFILE = {
+    "topic": "FastAPI 从入门到项目部署",
+    "goal": "能够独立开发带数据库、鉴权和测试的 REST API，并完成一次本地 Docker 部署",
+    "level": "入门",
+    "weekly_hours": 6,
+    "duration_weeks": 6,
+    "language": "中文",
+    "constraints": "有 Python 基础，希望以项目产出为导向",
+}
+
+DEMO_ROADMAP = {
+    "title": "FastAPI 六周项目路线",
+    "overview": "先用两周末建立请求、响应和项目结构的基本心智模型，再用两周完成数据库与鉴权，最后两周集中做测试、容器化和交付。每周都用一个可运行的小结果验证理解。",
+    "prerequisites": ["Python 函数、类型标注与虚拟环境", "HTTP 请求方法、状态码和 JSON"],
+    "stages": [
+        {
+            "name": "建立 API 心智模型",
+            "weeks": 1,
+            "focus": "从请求生命周期理解 FastAPI",
+            "topics": ["路由与依赖注入", "Pydantic 请求响应模型", "Swagger 文档"],
+            "practice": "实现一个带路径参数和查询参数的书目 API",
+            "deliverable": "可交互的 5 个接口",
+            "resource_ids": ["S1", "S2"],
+        },
+        {
+            "name": "项目结构与持久化",
+            "weeks": 2,
+            "focus": "把脚本式接口整理成可维护应用",
+            "topics": ["分层项目结构", "SQLAlchemy 2.0", "会话生命周期", "CRUD 与错误处理"],
+            "practice": "将书目 API 改造成 SQLite 持久化版本",
+            "deliverable": "带数据层和统一错误格式的 API",
+            "resource_ids": ["S3", "S4"],
+        },
+        {
+            "name": "安全与真实业务流",
+            "weeks": 1,
+            "focus": "加入账号、权限和完整业务闭环",
+            "topics": ["密码哈希", "JWT 鉴权", "用户数据隔离", "接口测试"],
+            "practice": "增加注册登录和用户专属书目",
+            "deliverable": "多用户隔离 API",
+            "resource_ids": ["S5", "S6"],
+        },
+        {
+            "name": "测试、部署与交付",
+            "weeks": 2,
+            "focus": "让项目可验证、可启动、可说明",
+            "topics": ["pytest 测试客户端", "Docker 镜像", "环境变量", "README 与接口验收"],
+            "practice": "编写核心接口测试并完成容器启动",
+            "deliverable": "可通过 Docker 启动并附测试报告的完整项目",
+            "resource_ids": ["S7", "S8"],
+        },
+    ],
+    "learning_outcomes": [
+        "能够解释 FastAPI 请求处理、依赖注入和响应模型的关系",
+        "能够使用 SQLAlchemy 完成带事务边界的 CRUD",
+        "能够实现 JWT 登录并保证接口数据按用户隔离",
+        "能够为核心接口编写可重复运行的 pytest 测试",
+        "能够用 Docker 和环境变量完成本地部署",
+    ],
+    "final_project": "交付一个带用户账号、书目管理、接口测试和 Dockerfile 的 FastAPI 服务，并在 README 中写清启动、测试和接口示例。",
+}
+
+DEMO_RESOURCES = [
+    {
+        "id": "S1",
+        "title": "FastAPI Tutorial",
+        "url": "https://fastapi.tiangolo.com/tutorial/",
+        "snippet": "官方逐步教程，覆盖路径参数、查询参数、请求体和依赖。",
+        "provider": "fastapi.tiangolo.com",
+        "score": 0.98,
+        "resource_type": "文档",
+        "reason": "建立 FastAPI 核心概念的首选官方资料",
+        "difficulty": "入门",
+        "relevance": 98,
+    },
+    {
+        "id": "S2",
+        "title": "FastAPI Features",
+        "url": "https://fastapi.tiangolo.com/features/",
+        "snippet": "FastAPI 能力与设计取舍概览。",
+        "provider": "fastapi.tiangolo.com",
+        "score": 0.95,
+        "resource_type": "文档",
+        "reason": "帮助理解工具链与自动文档等整体能力",
+        "difficulty": "入门",
+        "relevance": 91,
+    },
+    {
+        "id": "S3",
+        "title": "SQLAlchemy ORM Quick Start",
+        "url": "https://docs.sqlalchemy.org/en/20/orm/quickstart.html",
+        "snippet": "SQLAlchemy 2.0 ORM 的声明式模型和查询入门。",
+        "provider": "docs.sqlalchemy.org",
+        "score": 0.93,
+        "resource_type": "文档",
+        "reason": "支撑数据库建模、会话和查询实践",
+        "difficulty": "进阶",
+        "relevance": 94,
+    },
+    {
+        "id": "S4",
+        "title": "FastAPI Bigger Applications",
+        "url": "https://fastapi.tiangolo.com/tutorial/bigger-applications/",
+        "snippet": "路由、依赖和项目结构的组织方法。",
+        "provider": "fastapi.tiangolo.com",
+        "score": 0.92,
+        "resource_type": "文档",
+        "reason": "把单文件示例改造成可维护项目结构",
+        "difficulty": "进阶",
+        "relevance": 90,
+    },
+    {
+        "id": "S5",
+        "title": "OAuth2 with Password and JWT",
+        "url": "https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/",
+        "snippet": "使用密码哈希与 JWT 实现登录鉴权。",
+        "provider": "fastapi.tiangolo.com",
+        "score": 0.94,
+        "resource_type": "文档",
+        "reason": "账号和用户隔离功能的直接实现参考",
+        "difficulty": "进阶",
+        "relevance": 96,
+    },
+    {
+        "id": "S6",
+        "title": "FastAPI Testing",
+        "url": "https://fastapi.tiangolo.com/tutorial/testing/",
+        "snippet": "使用 TestClient 验证接口行为。",
+        "provider": "fastapi.tiangolo.com",
+        "score": 0.91,
+        "resource_type": "文档",
+        "reason": "在安全功能完成后立即建立回归测试",
+        "difficulty": "进阶",
+        "relevance": 89,
+    },
+    {
+        "id": "S7",
+        "title": "Pytest Documentation",
+        "url": "https://docs.pytest.org/en/stable/",
+        "snippet": "pytest 的 fixture、parametrize 与运行方式。",
+        "provider": "docs.pytest.org",
+        "score": 0.88,
+        "resource_type": "文档",
+        "reason": "补充测试组织与边界用例设计",
+        "difficulty": "进阶",
+        "relevance": 86,
+    },
+    {
+        "id": "S8",
+        "title": "Python Docker Official Image",
+        "url": "https://hub.docker.com/_/python",
+        "snippet": "Python 官方容器镜像与入口说明。",
+        "provider": "hub.docker.com",
+        "score": 0.84,
+        "resource_type": "文档",
+        "reason": "完成轻量容器化与本地启动",
+        "difficulty": "进阶",
+        "relevance": 84,
+    },
+]
+
+_audit = audit_plan(DEMO_PROFILE, DEMO_ROADMAP, DEMO_RESOURCES)
+DEMO_EVALUATION = {
+    "total_score": 88,
+    "verdict": "recommended",
+    "summary": "路线与六周时间预算匹配。前期概念学习和后期项目交付的比例合理，资料以官方文档为主，引用能够支撑每个阶段。",
+    "strengths": ["资料权威且覆盖路线全部阶段", "每周都有可验证产出", "最终项目包含测试与部署闭环"],
+    "issues": ["SQLAlchemy 与鉴权连续出现，第二至第三周认知负担略高"],
+    "recommendations": ["第三周开始前重新运行书目 API 示例", "为 JWT 鉴权单独保留一个最小可运行分支"],
+    "dimensions": [
+        {"name": "目标匹配", "score": 19, "comment": "覆盖开发、测试和部署目标"},
+        {"name": "学习顺序", "score": 17, "comment": "由接口到持久化再到安全，依赖合理"},
+        {"name": "工作量", "score": 18, "comment": "周均 6 小时，每个阶段都有明确交付"},
+        {"name": "资料质量", "score": 18, "comment": "八份资料均来自官方文档或项目主页"},
+        {"name": "可执行性", "score": 16, "comment": "综合项目完整，但第三周需要控制范围"},
+    ],
+    "program_checks": _audit,
+}
+
+DEMO_REPORT = render_report(DEMO_PROFILE, DEMO_ROADMAP, DEMO_RESOURCES, DEMO_EVALUATION)
+
+
+def get_demo():
+    return {
+        "profile": DEMO_PROFILE,
+        "roadmap": DEMO_ROADMAP,
+        "resources": DEMO_RESOURCES,
+        "evaluation": DEMO_EVALUATION,
+        "report_markdown": DEMO_REPORT,
+    }

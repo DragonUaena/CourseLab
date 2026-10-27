@@ -1,0 +1,54 @@
+from pathlib import Path
+
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", extra="ignore")
+
+    secret_key: str = Field(
+        "local-development-only-change-me",
+        validation_alias=AliasChoices("COURSELAB_SECRET_KEY", "SECRET_KEY", "secret_key"),
+    )
+    credential_key: str = Field(
+        "",
+        validation_alias=AliasChoices("COURSELAB_CREDENTIAL_KEY", "credential_key"),
+    )
+    database_url: str = Field(
+        f"sqlite:///{(PROJECT_ROOT / 'data' / 'courselab.db').as_posix()}",
+        validation_alias=AliasChoices("COURSELAB_DATABASE_URL", "DATABASE_URL", "database_url"),
+    )
+    access_token_minutes: int = Field(
+        60 * 24 * 7,
+        validation_alias=AliasChoices("COURSELAB_ACCESS_TOKEN_MINUTES", "access_token_minutes"),
+    )
+    cors_origins: list[str] = Field(
+        ["http://localhost:5173", "http://127.0.0.1:5173"],
+        validation_alias=AliasChoices("COURSELAB_CORS_ORIGINS", "cors_origins"),
+    )
+    tavily_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("TAVILY_API_KEY", "COURSELAB_TAVILY_API_KEY", "tavily_api_key"),
+    )
+    openai_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("OPENAI_API_KEY", "COURSELAB_OPENAI_API_KEY", "openai_api_key"),
+    )
+    openai_api_base: str = Field(
+        "",
+        validation_alias=AliasChoices("OPENAI_API_BASE", "COURSELAB_OPENAI_API_BASE", "openai_api_base"),
+    )
+    llm_model: str = Field(
+        "openai/gpt-4o-mini",
+        validation_alias=AliasChoices("COURSELAB_LLM_MODEL", "LLM_MODEL", "llm_model"),
+    )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def split_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
