@@ -1,135 +1,355 @@
+<div align="center">
+
 # CourseLab
 
-CourseLab 是一个本地多账号的 AI 学习路线规划应用。输入想学的主题、目标、基础和每周可投入时间，
-它会先用 Tavily 搜索资料，再由 CrewAI 组织资料策展、路线设计和计划审查三个 Agent，最后输出带引用
-学习路线、资料索引、可用性评分和 Markdown 报告。
+### Evidence-first AI learning route planner
 
-![CourseLab 学习路线首页](output/playwright/courselab-home.png)
+输入学习目标、现有基础和可投入时间，自动检索可信资料，生成分阶段学习路线，
+并对路线的工作量、资料覆盖和执行可行性进行独立审查。
 
-![带资料引用和可用性评测的演示报告](output/playwright/courselab-demo.png)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![CrewAI](https://img.shields.io/badge/CrewAI-1.15-EF6C00)](https://www.crewai.com/)
+[![Tavily](https://img.shields.io/badge/Search-Tavily-245BFF)](https://tavily.com/)
+[![CI](https://github.com/DragonUaena/CourseLab/actions/workflows/ci.yml/badge.svg)](https://github.com/DragonUaena/CourseLab/actions/workflows/ci.yml)
 
-## 功能
+[产品概览](#产品概览) ·
+[核心能力](#核心能力) ·
+[架构](#系统架构) ·
+[快速开始](#快速开始) ·
+[使用方式](#使用方式) ·
+[API](#api) ·
+[FAQ](#faq)
 
-- 多账号注册登录，每个用户只能访问自己的学习计划。
-- Tavily 按主题、目标和项目实践需求实时搜索资料。
-- 资料策展 Agent 只从搜索结果中选来源，路线不直接编造 URL。
-- 路线架构 Agent 将先修、核心知识、练习和综合项目安排到指定周期。
-- 审查 Agent 从目标匹配、顺序、工作量、资料质量和可执行性五项评分。
-- 程序审计补充检查阶段资料覆盖、周期一致性和引用数量。
-- 计划异步生成，页面自动显示检索、编排和审查进度。
-- 生成结果保存到本地 SQLite，支持重试、删除和 Markdown 下载。
-- 内置一份不消耗 API 的 FastAPI 六周演示报告。
+</div>
+
+![CourseLab 首页](output/playwright/courselab-home.png)
+
+## 产品概览
+
+通用聊天模型可以快速列出知识点，但一份真正可执行的学习计划需要同时回答三个问题：
+
+1. 学习顺序是否符合知识依赖？
+2. 推荐资料是否真实存在、内容相关并能够支撑对应阶段？
+3. 总工作量是否适合学习者的时间和基础？
+
+CourseLab 使用 CrewAI 编排多个专职 Agent，通过 Tavily 获取实时搜索结果，
+再结合结构化校验对生成结果进行复核。系统不仅生成路线，也保留每条路线引用的来源、
+阶段交付物和审查评分，便于执行与复查。
+
+项目面向本地自托管场景，支持多账号、用户数据隔离、API Key 加密保存和 Markdown 报告导出。
+
+![学习路线、资料索引与可用性评测](output/playwright/courselab-demo.png)
+
+## 核心能力
+
+| 能力 | 说明 |
+| --- | --- |
+| 实时资料检索 | Tavily 根据主题、目标和项目实践需求执行多路搜索并去重 |
+| 资料策展 | 资料 Agent 只从搜索证据中筛选来源，路线不直接编造 URL |
+| 自适应路线设计 | 根据基础、总周期和每周时间安排先修、核心知识、练习与综合项目 |
+| 独立计划审查 | 审查 Agent 从目标匹配、学习顺序、工作量、资料质量和可执行性五个维度评分 |
+| 程序化质量检查 | 自动检查阶段资料覆盖、周数一致性、引用数量和综合项目完整性 |
+| 多用户隔离 | JWT 身份认证，所有计划通过用户 ID 在服务端强制隔离 |
+| 密钥安全 | Tavily 和模型 API Key 使用 Fernet 加密后保存 |
+| 异步任务 | 搜索、编排、审查在后台队列中执行，页面实时展示生成进度 |
+| 报告导出 | 将路线、阶段安排、评测结果和引用资料导出为 Markdown |
+| 零费用演示 | 内置完整演示报告，不调用 Tavily 或大模型 |
+
+## 系统架构
+
+```mermaid
+flowchart TD
+    UI[Vue 3 前端] --> API[FastAPI]
+    API --> AUTH[JWT 认证与用户隔离]
+    API --> QUEUE[后台任务队列]
+    QUEUE --> SEARCH[Tavily 多路检索]
+    SEARCH --> CURATOR[资料策展 Agent]
+    CURATOR --> PLANNER[路线设计 Agent]
+    PLANNER --> REVIEWER[计划审查 Agent]
+    REVIEWER --> AUDIT[程序化质量审计]
+    AUDIT --> DB[(SQLite)]
+    DB --> UI
+    AUTH --> DB
+```
+
+### Agent 协作流程
+
+```text
+学习目标与时间预算
+        │
+        ▼
+Tavily 四路检索 + URL 去重
+        │
+        ▼
+资料策展 Agent ── 根据相关性、难度和用途筛选来源
+        │
+        ▼
+路线设计 Agent ── 安排阶段、知识点、练习和交付物
+        │
+        ▼
+计划审查 Agent ── 五维评分、风险与改进建议
+        │
+        ▼
+程序审计 ── 周数、引用覆盖、资料数量和最终项目检查
+        │
+        ▼
+路线 + 资料索引 + 评分报告
+```
 
 ## 技术栈
 
-| 层次 | 技术 |
+| 模块 | 技术 |
 | --- | --- |
-| 多 Agent 编排 | CrewAI `1.15` |
+| 多 Agent 编排 | CrewAI |
+| 实时检索 | Tavily Python SDK |
 | Web API | FastAPI、Pydantic |
-| 数据库 | SQLAlchemy、SQLite（可切换 PostgreSQL） |
-| 资料检索 | Tavily |
-| 账号安全 | Argon2、JWT、Fernet 加密 Key |
+| 数据持久化 | SQLAlchemy、SQLite |
+| 身份认证 | PyJWT、Argon2 |
+| 密钥保护 | Cryptography / Fernet |
 | 前端 | Vue 3、Vue Router、Vite |
 | 测试 | pytest、FastAPI TestClient |
+| 持续集成 | GitHub Actions |
 
-## 工作流
+## 快速开始
 
-```text
-用户目标
-  ↓
-Tavily 四路检索与 URL 去重
-  ↓
-资料策展 Agent：筛选相关来源
-  ↓
-路线架构 Agent：安排阶段、练习和交付物
-  ↓
-计划审查 Agent：五项评分与改进建议
-  ↓
-程序审计 + 合并评分
-  ↓
-SQLite 保存路线、资料、评测与 Markdown 报告
+### 环境要求
+
+- Python 3.10 或更高版本
+- Node.js 20 或更高版本
+- npm 10 或更高版本
+- Tavily API Key
+- 任一 LiteLLM 兼容的大模型 API Key
+
+### 1. 获取代码
+
+```bash
+git clone https://github.com/DragonUaena/CourseLab.git
+cd CourseLab
 ```
 
-## 本地启动
+### 2. 安装后端依赖
 
-要求 Python 3.10+、Node.js 20+。
+Windows PowerShell：
 
 ```powershell
-Copy-Item .env.example .env
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+```
 
+macOS / Linux：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+cp .env.example .env
+```
+
+### 3. 安装前端依赖
+
+```bash
 cd frontend
 npm install
 cd ..
 ```
 
-打开两个终端。
+### 4. 启动应用
 
-后端：
+Windows 可以一键启动：
 
 ```powershell
-.\.venv\Scripts\uvicorn.exe app.main:app --reload
+.\scripts\start-dev.ps1
 ```
 
-前端：
+macOS / Linux：
 
-```powershell
+```bash
+./scripts/start-dev.sh
+```
+
+也可以分别启动后端和前端。
+
+```bash
+# 终端 1
+uvicorn app.main:app --reload
+
+# 终端 2
 cd frontend
 npm run dev
 ```
 
-访问：
+打开：
 
 - 应用：<http://127.0.0.1:5173>
-- Swagger：<http://127.0.0.1:8000/docs>
+- API 文档：<http://127.0.0.1:8000/docs>
 - 演示报告：<http://127.0.0.1:5173/demo>
 
-首次使用请在应用内注册账号，再到“模型设置”填写 Tavily 和模型 Key。演示报告不需要 Key。
+## 使用方式
+
+### 查看无 API 演示
+
+打开 `/demo` 即可查看完整的 FastAPI 六周学习路线、资料引用、质量评分和审查建议。
+演示报告使用内置数据，不会访问 Tavily 或大模型。
+
+### 配置模型服务
+
+1. 注册并登录 CourseLab。
+2. 打开“模型设置”。
+3. 填写 Tavily API Key。
+4. 填写大模型 API Key。
+5. 选择 LiteLLM 格式的模型名，例如：
+   - OpenAI：`openai/gpt-4o-mini`
+   - DeepSeek：`deepseek/deepseek-chat`
+   - OpenAI 兼容网关：填写对应的 API Base URL 和模型名。
+
+### 生成学习计划
+
+1. 点击“生成计划”。
+2. 填写想学习的主题、最终目标、当前基础和资料语言。
+3. 设置每周可投入小时数与计划周期。
+4. 提交后等待资料检索、路线编排和计划审查完成。
+5. 在报告中切换查看资料索引、质量检查和审查建议。
+6. 下载 Markdown 报告或保留在个人路线列表中。
 
 ## 配置
 
-`.env` 中的共享配置可用于本地开发：
+CourseLab 从 `.env` 和进程环境变量读取配置。
 
-| 变量 | 说明 |
-| --- | --- |
-| `COURSELAB_SECRET_KEY` | JWT 签名密钥，建议设置成长随机字符串 |
-| `COURSELAB_CREDENTIAL_KEY` | 用户 API Key 加密密钥；留空时自动生成 `data/.credential_key` |
-| `COURSELAB_DATABASE_URL` | 默认 SQLite，正式部署可替换为 PostgreSQL URL |
-| `TAVILY_API_KEY` | 所有用户共享的 Tavily 默认 Key，可选 |
-| `OPENAI_API_KEY` | 所有用户共享的模型默认 Key，可选 |
-| `COURSELAB_LLM_MODEL` | LiteLLM 模型名，默认 `openai/gpt-4o-mini` |
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `COURSELAB_SECRET_KEY` | 本地开发默认值 | JWT 签名密钥，正式环境必须更换 |
+| `COURSELAB_CREDENTIAL_KEY` | 自动生成 | 用户 API Key 的加密密钥 |
+| `COURSELAB_DATABASE_URL` | `sqlite:///./data/courselab.db` | SQLAlchemy 数据库连接地址 |
+| `COURSELAB_ACCESS_TOKEN_MINUTES` | `10080` | 登录令牌有效分钟数 |
+| `COURSELAB_CORS_ORIGINS` | `http://localhost:5173,...` | 允许的前端来源，逗号分隔 |
+| `TAVILY_API_KEY` | 空 | 可选的共享 Tavily 默认 Key |
+| `OPENAI_API_KEY` | 空 | 可选的共享模型默认 Key |
+| `OPENAI_API_BASE` | 空 | OpenAI 兼容接口地址 |
+| `COURSELAB_LLM_MODEL` | `openai/gpt-4o-mini` | LiteLLM 模型名 |
 
-网页中填写的 Key 会在后端使用 Fernet 加密后保存，不会原样写入数据库或返回浏览器。
-每个用户的学习计划通过 JWT 中的用户身份和后端 `user_id` 条件隔离。
+用户也可以在网页中配置自己的 Key。Key 会由后端加密保存，不会原样写入数据库或返回浏览器。
 
-## 数据位置
+## API
 
-本地运行产生的数据都保存在当前电脑：
+| 方法 | 路径 | 功能 |
+| --- | --- | --- |
+| `GET` | `/api/health` | 服务健康检查 |
+| `POST` | `/api/auth/register` | 注册并获取访问令牌 |
+| `POST` | `/api/auth/login` | 登录并获取访问令牌 |
+| `GET` | `/api/auth/me` | 获取当前用户 |
+| `GET` | `/api/settings/credentials` | 查询 Key 配置状态 |
+| `PUT` | `/api/settings/credentials` | 保存用户 Key 和模型配置 |
+| `POST` | `/api/plans` | 创建学习计划任务 |
+| `GET` | `/api/plans` | 获取当前用户的学习计划 |
+| `GET` | `/api/plans/{id}` | 获取计划详情和生成进度 |
+| `POST` | `/api/plans/{id}/retry` | 重新生成失败计划 |
+| `DELETE` | `/api/plans/{id}` | 删除计划 |
+| `GET` | `/api/plans/{id}/report` | 下载 Markdown 报告 |
+| `GET` | `/api/demo` | 获取无 API 演示报告 |
+
+完整请求和响应结构可在 `/docs` 中查看。
+
+## 项目结构
 
 ```text
-data/
-├── courselab.db        # 用户、加密 Key、学习计划
-└── .credential_key     # 未配置 COURSELAB_CREDENTIAL_KEY 时自动生成
+CourseLab/
+├── app/
+│   ├── api.py              # FastAPI 路由
+│   ├── auth.py             # 用户认证与密码处理
+│   ├── config.py           # 环境配置
+│   ├── course_crew.py      # CrewAI Agent、任务与质量审计
+│   ├── credentials.py      # 用户 Key 加密与解析
+│   ├── demo_data.py        # 无 API 演示报告
+│   ├── models.py           # SQLAlchemy 数据模型
+│   ├── research.py         # Tavily 检索
+│   ├── worker.py           # 后台生成队列
+│   └── main.py             # 应用入口
+├── frontend/
+│   ├── src/components/     # 应用外壳与报告组件
+│   ├── src/views/          # 登录、路线、测评和设置页面
+│   ├── src/api.js          # 前端 API 客户端
+│   └── src/styles.css      # 响应式视觉系统
+├── tests/                  # API、配置与计划逻辑测试
+├── scripts/                # 本地启动脚本
+├── output/playwright/      # README 截图
+├── .env.example
+└── pyproject.toml
 ```
 
-`data/` 已加入 `.gitignore`。上传 GitHub 或 fork 不会携带任何账号、计划或 API Key。
+## 数据与安全
+
+- 默认数据库位于 `data/courselab.db`，已加入 `.gitignore`。
+- 每个学习计划关联唯一用户 ID，所有查询在服务端强制限定当前用户。
+- 用户密码使用 Argon2 哈希，不保存明文。
+- API Key 使用 Fernet 加密，前端只能查看“是否已配置”，不能读取原值。
+- 登录令牌通过 JWT 签名，并设置有效期。
+- fork 或克隆仓库不会携带本地账号、学习计划或 API Key。
 
 ## 测试
 
 ```powershell
 .\.venv\Scripts\pytest.exe -q
 .\.venv\Scripts\ruff.exe check app tests
+.\.venv\Scripts\ruff.exe format --check app tests
+```
+
+```bash
 cd frontend
 npm run build
 ```
 
-测试覆盖账号隔离、API Key 加密、缺少 Key 的失败提示、演示报告、周数归一化和计划可用性审计。
+当前测试覆盖：
 
-## 在线部署
+- 用户注册、登录与学习计划隔离
+- API Key 加密与脱敏
+- 缺少 Key 时的失败处理
+- Tavily 语言参数转换
+- 阶段周数归一化
+- 资料覆盖和计划可用性审计
+- 演示报告结构
+- `COURSELAB_*` 环境变量兼容性
 
-当前版本面向本地使用。后续上线时，可保持应用代码不变，把 `COURSELAB_DATABASE_URL` 切换为 PostgreSQL，
-并在服务器环境设置共享 Key、HTTPS 域名、访问限流和用户额度。公开站点的学习计划将保存在服务器数据库，
-而不是访问者电脑。
+## Roadmap
 
+- [x] Tavily 实时资料检索
+- [x] CrewAI 多 Agent 路线设计与审查
+- [x] 多账号与用户数据隔离
+- [x] API Key 加密保存
+- [x] Markdown 报告导出
+- [x] 响应式 Vue 3 界面
+- [ ] PostgreSQL 生产部署配置
+- [ ] 学习进度打卡
+- [ ] 资料链接定期健康检查
+- [ ] 分享只读学习路线
+
+## FAQ
+
+### 没有 API Key 可以使用吗？
+
+可以查看内置演示报告。生成个性化路线需要 Tavily 和大模型 Key。
+
+### 推荐资料会不会是模型编造的？
+
+路线 Agent 只返回搜索结果中的来源 ID，最终 URL 由后端根据 Tavily 原始结果补充。
+
+### 数据保存在哪里？
+
+默认保存在当前电脑的 `data/courselab.db`。切换到 PostgreSQL 后，可部署为集中式多用户服务。
+
+### 为什么计划会有评分？
+
+审查 Agent 和程序审计分别检查内容质量与结构约束，合并后形成计划可用性分数。
+
+### 支持哪些大模型？
+
+模型调用通过 CrewAI/LiteLLM 完成，可使用 OpenAI、DeepSeek 或其他兼容服务。
+
+## Contributing
+
+欢迎通过 Issue 提交问题、功能建议或资料质量反馈，也可以通过 Pull Request 改进代码与文档。
+
+提交前建议执行后端测试、Ruff 检查和前端生产构建。
