@@ -1,10 +1,19 @@
 <script setup>
+import { computed, ref } from "vue";
+
 const props = defineProps({
   report: { type: Object, required: true },
   actions: { type: Boolean, default: false },
 });
 
 defineEmits(["download"]);
+
+const activeTab = ref("resources");
+const tabs = computed(() => [
+  { id: "resources", label: "资料索引", count: props.report.resources.length },
+  { id: "checks", label: "质量检查", count: props.report.evaluation.dimensions.length },
+  { id: "review", label: "审查建议", count: props.report.evaluation.issues.length },
+]);
 
 function resourceById(id) {
   return props.report.resources.find((resource) => resource.id === id);
@@ -73,36 +82,54 @@ function resourceById(id) {
             </div>
           </div>
         </div>
+
+        <div class="route-outcomes">
+          <section>
+            <h3>开始之前</h3>
+            <ul>
+              <li v-for="item in report.roadmap.prerequisites" :key="item">{{ item }}</li>
+            </ul>
+          </section>
+          <section>
+            <h3>最终交付</h3>
+            <p>{{ report.roadmap.final_project }}</p>
+          </section>
+        </div>
       </section>
 
-      <aside class="sidebar-stack">
-        <section class="score-card">
-          <div class="score-number">{{ report.evaluation.total_score }}</div>
-          <p>计划可用性 / 100</p>
+      <aside class="report-sidebar">
+        <section class="score-card report-score">
+          <div class="score-head">
+            <div class="score-number">{{ report.evaluation.total_score }}</div>
+            <span class="score-verdict">
+              {{ report.evaluation.verdict === "recommended" ? "建议执行" : "建议修订" }}
+            </span>
+          </div>
+          <strong>计划可用性 / 100</strong>
           <p>{{ report.evaluation.summary }}</p>
         </section>
 
-        <section class="side-panel">
-          <h3>五项检查</h3>
-          <div v-for="dimension in report.evaluation.dimensions" :key="dimension.name" class="dimension">
-            <div class="dimension-label">
-              <span>{{ dimension.name }}</span>
-              <span>{{ dimension.score }}/20</span>
-            </div>
-            <div class="dimension-bar"><i :style="{ width: `${dimension.score * 5}%` }"></i></div>
+        <div class="report-tabs" role="tablist" aria-label="报告详情">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            class="report-tab"
+            :class="{ active: activeTab === tab.id }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === tab.id"
+            @click="activeTab = tab.id"
+          >
+            <span>{{ tab.label }}</span>
+            <small>{{ tab.count }}</small>
+          </button>
+        </div>
+
+        <section v-if="activeTab === 'resources'" class="side-panel tab-panel" role="tabpanel">
+          <div class="tab-panel-head">
+            <h3>资料索引</h3>
+            <span>按计划引用筛选</span>
           </div>
-        </section>
-
-        <section class="side-panel">
-          <h3>先修与交付</h3>
-          <ul>
-            <li v-for="item in report.roadmap.prerequisites" :key="item">{{ item }}</li>
-            <li>{{ report.roadmap.final_project }}</li>
-          </ul>
-        </section>
-
-        <section class="side-panel">
-          <h3>资料索引</h3>
           <div class="resource-list">
             <a
               v-for="resource in report.resources"
@@ -119,16 +146,59 @@ function resourceById(id) {
           </div>
         </section>
 
-        <section class="side-panel">
-          <h3>审查意见</h3>
-          <ul>
-            <li v-for="item in [...report.evaluation.issues, ...report.evaluation.recommendations]" :key="item">
-              {{ item }}
-            </li>
-          </ul>
+        <section v-else-if="activeTab === 'checks'" class="side-panel tab-panel" role="tabpanel">
+          <div class="tab-panel-head">
+            <h3>五项检查</h3>
+            <span>Agent 评分</span>
+          </div>
+          <div v-for="dimension in report.evaluation.dimensions" :key="dimension.name" class="dimension">
+            <div class="dimension-label">
+              <span>{{ dimension.name }}</span>
+              <span>{{ dimension.score }}/20</span>
+            </div>
+            <div class="dimension-bar"><i :style="{ width: `${dimension.score * 5}%` }"></i></div>
+          </div>
+          <div v-if="report.evaluation.program_checks?.checks?.length" class="audit-list">
+            <div
+              v-for="check in report.evaluation.program_checks.checks"
+              :key="check.name"
+              class="audit-row"
+            >
+              <span :class="{ passed: check.passed }">{{ check.passed ? "通过" : "注意" }}</span>
+              <div>
+                <strong>{{ check.name }}</strong>
+                <small>{{ check.detail }}</small>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <button v-if="actions" class="button signal" type="button" @click="$emit('download')">
+        <section v-else class="side-panel tab-panel" role="tabpanel">
+          <div class="tab-panel-head">
+            <h3>审查建议</h3>
+            <span>风险与下一步</span>
+          </div>
+          <div class="review-group">
+            <strong>优势</strong>
+            <ul>
+              <li v-for="item in report.evaluation.strengths" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <div class="review-group review-risk">
+            <strong>需要留意</strong>
+            <ul>
+              <li v-for="item in report.evaluation.issues" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <div class="review-group">
+            <strong>建议调整</strong>
+            <ul>
+              <li v-for="item in report.evaluation.recommendations" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+        </section>
+
+        <button v-if="actions" class="button signal report-download" type="button" @click="$emit('download')">
           下载 Markdown 报告
         </button>
       </aside>
