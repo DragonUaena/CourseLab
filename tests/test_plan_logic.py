@@ -1,5 +1,6 @@
 from app.course_crew import CourseCrew, audit_plan
 from app.demo_data import DEMO_PROFILE, DEMO_RESOURCES, DEMO_ROADMAP
+from app.research import _language_code
 from app.schemas import Roadmap
 
 
@@ -18,3 +19,9 @@ def test_audit_flags_missing_resources_and_wrong_week_count():
     assert audit["coverage"] == 0
     assert "部分阶段没有配套资料" in audit["issues"]
     assert "阶段周数与总周期不一致" in audit["issues"]
+
+
+def test_tavily_language_aliases_are_normalized():
+    assert _language_code("中文") == "zh-cn"
+    assert _language_code("english") == "en"
+    assert _language_code("中英混合") is None

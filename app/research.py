@@ -17,15 +17,40 @@ def _resource_type(title: str, url: str) -> str:
     return "文章"
 
 
+def _language_code(language: str) -> str | None:
+    normalized = language.strip().lower().replace("_", "-")
+    aliases = {
+        "中文": "zh-cn",
+        "汉语": "zh-cn",
+        "简体中文": "zh-cn",
+        "chinese": "zh-cn",
+        "zh": "zh-cn",
+        "zh-cn": "zh-cn",
+        "英文": "en",
+        "英语": "en",
+        "english": "en",
+        "en": "en",
+        "中英混合": None,
+        "双语": None,
+        "mixed": None,
+    }
+    return aliases.get(normalized, normalized)
+
+
 def _search_one(client: TavilyClient, query: str, language: str) -> list[dict]:
+    language_code = _language_code(language)
+    parameters = {
+        "query": query,
+        "search_depth": "advanced",
+        "max_results": 5,
+        "include_answer": False,
+        "include_raw_content": False,
+        "include_favicon": True,
+    }
+    if language_code:
+        parameters["language"] = language_code
     response = client.search(
-        query=query,
-        search_depth="advanced",
-        max_results=5,
-        include_answer=False,
-        include_raw_content=False,
-        include_favicon=True,
-        language=language,
+        **parameters,
     )
     return response.get("results", [])
 
