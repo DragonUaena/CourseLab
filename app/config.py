@@ -1,7 +1,8 @@
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -25,7 +26,7 @@ class Settings(BaseSettings):
         60 * 24 * 7,
         validation_alias=AliasChoices("COURSELAB_ACCESS_TOKEN_MINUTES", "access_token_minutes"),
     )
-    cors_origins: list[str] = Field(
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         ["http://localhost:5173", "http://127.0.0.1:5173"],
         validation_alias=AliasChoices("COURSELAB_CORS_ORIGINS", "cors_origins"),
     )
