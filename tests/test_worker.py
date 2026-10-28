@@ -12,6 +12,7 @@ from app.database import Database
 from app.demo_data import DEMO_EVALUATION, DEMO_RESOURCES, DEMO_ROADMAP
 from app.main import create_app
 from app.models import LearningPlan, User
+from app.worker import format_generation_error
 
 
 def auth_headers(token: str) -> dict[str, str]:
@@ -243,3 +244,15 @@ def test_stop_takes_effect_at_the_next_worker_boundary(
         assert stopped.status == "cancelled"
         assert stopped.roadmap is None
     assert crew_called is False
+
+
+def test_reasoning_budget_error_is_reported_actionably():
+    error = RuntimeError(
+        "Could not parse response content as the length limit was reached - "
+        "CompletionUsage(completion_tokens=4096, prompt_tokens=1622, total_tokens=5718, "
+        "completion_tokens_details=CompletionTokensDetails(reasoning_tokens=4096))"
+    )
+    message = format_generation_error(error)
+    assert "推理额度" in message
+    assert "4096" in message
+    assert "12000" in message

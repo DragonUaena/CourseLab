@@ -26,3 +26,9 @@ def test_comma_separated_cors_origins_are_read_from_env_file(tmp_path: Path):
     )
     settings = Settings(_env_file=env_file)
     assert settings.cors_origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def test_reasoning_models_get_safe_default_output_budget():
+    settings = Settings(_env_file=None)
+    assert settings.llm_max_tokens == 12000
+    assert settings.llm_reasoning_effort == "low"

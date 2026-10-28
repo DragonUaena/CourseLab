@@ -32,6 +32,13 @@ def raise_if_cancelled_at_task_boundary(_output) -> None:
         raise GenerationCancelled("用户已停止生成")
 
 
+def model_uses_reasoning_tokens(model_name: str) -> bool:
+    family = model_name.rsplit("/", 1)[-1].lower()
+    return family.startswith(("o1", "o3", "o4", "gpt-5")) or any(
+        marker in family for marker in ("reasoner", "reasoning", "deepseek-r", "deepseek-v4")
+    )
+
+
 class CuratedSource(BaseModel):
     source_id: str
     relevance: int = Field(ge=0, le=100)
@@ -56,19 +63,23 @@ class CourseCrew:
     def __init__(
         self,
         credentials: RuntimeCredentials,
-        max_tokens: int = 4096,
+        max_tokens: int = 12000,
         prompt_source_chars: int = 420,
+        reasoning_effort: str | None = "low",
         cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         self.prompt_source_chars = prompt_source_chars
         self.cancel_check = cancel_check
-        self.llm = LLM(
-            model=credentials.llm_model,
-            api_key=credentials.llm_api_key,
-            base_url=credentials.llm_base_url or None,
-            temperature=0.2,
-            max_tokens=max_tokens,
-        )
+        llm_options = {
+            "model": credentials.llm_model,
+            "api_key": credentials.llm_api_key,
+            "base_url": credentials.llm_base_url or None,
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        }
+        if reasoning_effort and model_uses_reasoning_tokens(credentials.llm_model):
+            llm_options["reasoning_effort"] = reasoning_effort
+        self.llm = LLM(**llm_options)
 
     def _compact_sources(self, sources: list[dict]) -> list[dict]:
         return [
@@ -93,7 +104,7 @@ class CourseCrew:
             "llm": self.llm,
             "verbose": False,
             "allow_delegation": False,
-            "max_iter": 3,
+            "max_iter": 2,
         }
         curator = Agent(
             role="学习资料策展人",

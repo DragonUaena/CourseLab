@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -65,10 +65,14 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("COURSELAB_PROMPT_SOURCE_CHARS", "prompt_source_chars"),
     )
     llm_max_tokens: int = Field(
-        4096,
-        ge=1000,
-        le=12000,
+        12000,
+        ge=2000,
+        le=20000,
         validation_alias=AliasChoices("COURSELAB_LLM_MAX_TOKENS", "llm_max_tokens"),
+    )
+    llm_reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+        "low",
+        validation_alias=AliasChoices("COURSELAB_LLM_REASONING_EFFORT", "llm_reasoning_effort"),
     )
 
     @field_validator("cors_origins", mode="before")

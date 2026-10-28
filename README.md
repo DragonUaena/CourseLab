@@ -238,7 +238,8 @@ CourseLab 从 `.env` 和进程环境变量读取配置。
 | `COURSELAB_TAVILY_RESULTS_PER_QUERY` | `4` | 每路 Tavily 检索返回数量 |
 | `COURSELAB_TAVILY_MAX_SOURCES` | `12` | 去重后最多保留的来源数量 |
 | `COURSELAB_PROMPT_SOURCE_CHARS` | `420` | 单个来源进入提示词的最大字符数 |
-| `COURSELAB_LLM_MAX_TOKENS` | `4096` | 单次模型输出上限 |
+| `COURSELAB_LLM_MAX_TOKENS` | `12000` | 单次模型输出与推理额度上限；上限不等于实际消耗 |
+| `COURSELAB_LLM_REASONING_EFFORT` | `low` | 推理模型的思考强度，支持 `minimal`、`low`、`medium`、`high` |
 
 用户也可以在网页中配置自己的 Key。Key 会由后端加密保存，不会原样写入数据库或返回浏览器。
 保存后可勾选“清除 Key”移除当前账号的密钥；留空提交仍表示保留已有值。
@@ -372,6 +373,12 @@ npm run build
 ### 支持哪些大模型？
 
 模型调用通过 CrewAI/LiteLLM 完成，可使用 OpenAI、DeepSeek 或其他兼容服务。
+
+### 为什么提示 `length limit was reached`？
+
+推理模型的输出上限同时包含内部 reasoning 和最终 JSON。如果 `reasoning_tokens` 已等于
+`completion_tokens`，说明模型在写出报告前就用完了额度。默认上限已改为 12000，并对识别的
+推理模型使用低思考强度；仍失败时应提高 `COURSELAB_LLM_MAX_TOKENS` 或更换非推理模型。
 
 ## Contributing
 

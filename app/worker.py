@@ -1,5 +1,6 @@
 import logging
 import queue
+import re
 import threading
 import time
 from datetime import UTC, datetime
@@ -15,6 +16,22 @@ from app.report import render_report
 from app.research import TavilyResearcher
 
 logger = logging.getLogger(__name__)
+
+
+def format_generation_error(exc: Exception) -> str:
+    message = str(exc)
+    if "length limit was reached" not in message.lower():
+        return f"生成失败：{message[:500]}"
+    completion_match = re.search(r"completion_tokens=(\d+)", message)
+    reasoning_match = re.search(r"reasoning_tokens=(\d+)", message)
+    completion_tokens = completion_match.group(1) if completion_match else "上限"
+    reasoning_tokens = reasoning_match.group(1) if reasoning_match else "未知"
+    return (
+        f"生成失败：模型在输出正文前用尽了 {completion_tokens} tokens 的推理额度"
+        f"（reasoning={reasoning_tokens}）。当前详细报告需要推理和结构化输出两部分空间；"
+        "请将 COURSELAB_LLM_MAX_TOKENS 调高到至少 12000、降低 "
+        "COURSELAB_LLM_REASONING_EFFORT，或改用非推理模型后重试。"
+    )
 
 
 class CourseLabQueue:
@@ -104,6 +121,7 @@ class CourseLabQueue:
                     credentials,
                     max_tokens=self.settings.llm_max_tokens,
                     prompt_source_chars=self.settings.prompt_source_chars,
+                    reasoning_effort=self.settings.llm_reasoning_effort,
                     cancel_check=lambda: self._cancelled_in_database(plan_id),
                 ).generate(profile, sources)
                 if self._cancelled(session, plan):
@@ -141,7 +159,7 @@ class CourseLabQueue:
                 self._fail(session, plan, str(exc))
             except Exception as exc:
                 logger.exception("CourseLab generation failed for plan %s", plan_id)
-                self._fail(session, plan, f"生成失败：{str(exc)[:500]}")
+                self._fail(session, plan, format_generation_error(exc))
 
     def _cancelled_in_database(self, plan_id: str) -> bool:
         with self.database.sessions() as session:

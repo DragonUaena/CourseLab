@@ -11,6 +11,7 @@ from app.course_crew import (
     GenerationCancelled,
     _task_cancel_check,
     audit_plan,
+    model_uses_reasoning_tokens,
     raise_if_cancelled_at_task_boundary,
 )
 from app.credentials import RuntimeCredentials
@@ -127,6 +128,28 @@ def test_crew_callback_is_module_level_and_serializable():
             callback=raise_if_cancelled_at_task_boundary,
         )
     assert not any("method callbacks cannot be serialized" in str(item.message) for item in caught)
+
+
+def test_reasoning_models_receive_low_effort_and_larger_output_budget(monkeypatch: pytest.MonkeyPatch):
+    class FakeLLM:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr("app.course_crew.LLM", FakeLLM)
+    crew = CourseCrew(
+        RuntimeCredentials(
+            tavily_api_key="",
+            llm_api_key="test",
+            llm_model="openai/deepseek-v4.1-flash-1017",
+            llm_base_url="https://example.com/v1",
+        ),
+        max_tokens=12000,
+        reasoning_effort="low",
+    )
+    assert model_uses_reasoning_tokens("openai/deepseek-v4.1-flash-1017") is True
+    assert model_uses_reasoning_tokens("openai/gpt-4o-mini") is False
+    assert crew.llm.kwargs["max_tokens"] == 12000
+    assert crew.llm.kwargs["reasoning_effort"] == "low"
 
 
 def test_tavily_language_aliases_are_normalized():
