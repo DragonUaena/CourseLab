@@ -12,7 +12,7 @@ from app.database import Database
 from app.demo_data import DEMO_EVALUATION, DEMO_RESOURCES, DEMO_ROADMAP
 from app.main import create_app
 from app.models import LearningPlan, User
-from app.worker import format_generation_error
+from app.worker import format_generation_error, is_rate_limit_error
 
 
 def auth_headers(token: str) -> dict[str, str]:
@@ -256,3 +256,87 @@ def test_reasoning_budget_error_is_reported_actionably():
     assert "推理额度" in message
     assert "4096" in message
     assert "12000" in message
+
+
+def test_rate_limited_model_falls_back_without_changing_output_schema(
+    client: TestClient,
+    registered_user: dict,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = auth_headers(registered_user["access_token"])
+    client.put(
+        "/api/settings/credentials",
+        headers=headers,
+        json={
+            "tavily_api_key": "tvly-test",
+            "llm_api_key": "sk-test",
+            "llm_model": "openai/deepseek-v4.1-flash-1017",
+            "llm_base_url": "https://example.com/v1",
+        },
+    )
+    client.app.state.settings.llm_fallback_model = "openai/qwen3.8-27b"
+    client.app.state.worker._rate_limited_until.clear()
+    models: list[str] = []
+
+    class Researcher:
+        def __init__(self, _api_key: str, **_kwargs):
+            pass
+
+        def search(self, _topic: str, _goal: str, _language: str):
+            return DEMO_RESOURCES
+
+    class FallbackCrew:
+        def __init__(self, credentials, **_kwargs):
+            self.model = credentials.llm_model
+            models.append(self.model)
+
+        def generate(self, _profile, _sources):
+            if self.model.startswith("openai/deepseek"):
+                raise RuntimeError("Error code: 429 - rate_limit_exceeded: Channel rate limit reached")
+            return CrewResult(
+                roadmap=DEMO_ROADMAP,
+                resources=DEMO_RESOURCES,
+                evaluation=DEMO_EVALUATION,
+                token_usage={"total_tokens": 1200},
+            )
+
+        blend_evaluation = staticmethod(CourseCrew.blend_evaluation)
+
+    monkeypatch.setattr("app.worker.TavilyResearcher", Researcher)
+    monkeypatch.setattr("app.worker.CourseCrew", FallbackCrew)
+
+    plan_ids = []
+    with client.app.state.database.sessions() as session:
+        for index in range(2):
+            plan = LearningPlan(
+                user_id=registered_user["user"]["id"],
+                topic=f"备用模型验证 {index}",
+                goal="验证主模型限流时自动切换备用模型并保留完整报告结构",
+                level="入门",
+                weekly_hours=4,
+                duration_weeks=6,
+                language="中文",
+            )
+            session.add(plan)
+            session.flush()
+            plan_ids.append(plan.id)
+        session.commit()
+
+    client.app.state.worker._generate(plan_ids[0])
+    client.app.state.worker._generate(plan_ids[1])
+
+    with client.app.state.database.sessions() as session:
+        plans = [session.get(LearningPlan, plan_id) for plan_id in plan_ids]
+        assert all(plan.status == "completed" for plan in plans)
+        assert all(plan.model_name == "openai/qwen3.8-27b" for plan in plans)
+    assert models == [
+        "openai/deepseek-v4.1-flash-1017",
+        "openai/qwen3.8-27b",
+        "openai/qwen3.8-27b",
+    ]
+
+
+def test_rate_limit_error_is_classified_and_explained():
+    error = RuntimeError("Error code: 429 - rate_limit_exceeded")
+    assert is_rate_limit_error(error) is True
+    assert "速率上限" in format_generation_error(error)

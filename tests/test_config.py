@@ -32,3 +32,5 @@ def test_reasoning_models_get_safe_default_output_budget():
     settings = Settings(_env_file=None)
     assert settings.llm_max_tokens == 12000
     assert settings.llm_reasoning_effort == "low"
+    assert Settings.model_fields["llm_fallback_model"].default == ""
+    assert Settings.model_fields["llm_rate_limit_cooldown_seconds"].default == 60

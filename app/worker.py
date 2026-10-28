@@ -3,13 +3,20 @@ import queue
 import re
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 
 from app.config import PROJECT_ROOT, Settings
 from app.course_crew import CourseCrew, GenerationCancelled, audit_plan
-from app.credentials import CredentialCipher, InvalidCredentialsError, MissingCredentialsError, resolve_credentials
+from app.credentials import (
+    CredentialCipher,
+    InvalidCredentialsError,
+    MissingCredentialsError,
+    RuntimeCredentials,
+    resolve_credentials,
+)
 from app.database import Database
 from app.models import LearningPlan, utcnow
 from app.report import render_report
@@ -18,8 +25,15 @@ from app.research import TavilyResearcher
 logger = logging.getLogger(__name__)
 
 
+def is_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "error code: 429" in message or "rate_limit_exceeded" in message or "rate limit reached" in message
+
+
 def format_generation_error(exc: Exception) -> str:
     message = str(exc)
+    if is_rate_limit_error(exc):
+        return "生成失败：模型通道当前达到速率上限。请稍后重试，或配置可用的备用模型。"
     if "length limit was reached" not in message.lower():
         return f"生成失败：{message[:500]}"
     completion_match = re.search(r"completion_tokens=(\d+)", message)
@@ -41,6 +55,7 @@ class CourseLabQueue:
         self.cipher = cipher
         self.items: queue.Queue[str | None] = queue.Queue()
         self.thread = threading.Thread(target=self._run, name="courselab-worker", daemon=True)
+        self._rate_limited_until: dict[str, float] = {}
 
     def start(self) -> None:
         self.recover_interrupted()
@@ -117,13 +132,30 @@ class CourseLabQueue:
                 plan.stage = f"已检索 {len(sources)} 个来源，CrewAI 正在编排路线"
                 plan.progress = 38
                 session.commit()
-                crew_result = CourseCrew(
-                    credentials,
-                    max_tokens=self.settings.llm_max_tokens,
-                    prompt_source_chars=self.settings.prompt_source_chars,
-                    reasoning_effort=self.settings.llm_reasoning_effort,
-                    cancel_check=lambda: self._cancelled_in_database(plan_id),
-                ).generate(profile, sources)
+                active_credentials = credentials
+                fallback_model = self.settings.llm_fallback_model.strip()
+                if (
+                    fallback_model
+                    and fallback_model != credentials.llm_model
+                    and self._model_is_cooling_down(credentials.llm_model)
+                ):
+                    active_credentials = replace(credentials, llm_model=fallback_model)
+                    plan.stage = f"主模型限流冷却中，使用备用模型 {fallback_model}"
+                    session.commit()
+                try:
+                    crew_result = self._run_crew(active_credentials, profile, sources, plan_id)
+                except Exception as exc:
+                    if (
+                        not fallback_model
+                        or fallback_model == active_credentials.llm_model
+                        or not is_rate_limit_error(exc)
+                    ):
+                        raise
+                    self._mark_rate_limited(active_credentials.llm_model)
+                    active_credentials = replace(credentials, llm_model=fallback_model)
+                    plan.stage = f"主模型限流，已切换备用模型 {fallback_model}"
+                    session.commit()
+                    crew_result = self._run_crew(active_credentials, profile, sources, plan_id)
                 if self._cancelled(session, plan):
                     return
                 plan.stage = "独立 Agent 正在审查计划可用性"
@@ -136,7 +168,7 @@ class CourseLabQueue:
                 plan.roadmap = crew_result.roadmap
                 plan.resources = crew_result.resources
                 plan.evaluation = evaluation
-                plan.model_name = credentials.llm_model
+                plan.model_name = active_credentials.llm_model
                 plan.token_usage = crew_result.token_usage
                 completed_at = datetime.now(UTC)
                 generation_seconds = round(time.monotonic() - generation_started, 1)
@@ -160,6 +192,27 @@ class CourseLabQueue:
             except Exception as exc:
                 logger.exception("CourseLab generation failed for plan %s", plan_id)
                 self._fail(session, plan, format_generation_error(exc))
+
+    def _run_crew(
+        self,
+        credentials: RuntimeCredentials,
+        profile: dict,
+        sources: list[dict],
+        plan_id: str,
+    ):
+        return CourseCrew(
+            credentials,
+            max_tokens=self.settings.llm_max_tokens,
+            prompt_source_chars=self.settings.prompt_source_chars,
+            reasoning_effort=self.settings.llm_reasoning_effort,
+            cancel_check=lambda: self._cancelled_in_database(plan_id),
+        ).generate(profile, sources)
+
+    def _model_is_cooling_down(self, model_name: str) -> bool:
+        return self._rate_limited_until.get(model_name, 0) > time.monotonic()
+
+    def _mark_rate_limited(self, model_name: str) -> None:
+        self._rate_limited_until[model_name] = time.monotonic() + self.settings.llm_rate_limit_cooldown_seconds
 
     def _cancelled_in_database(self, plan_id: str) -> bool:
         with self.database.sessions() as session:

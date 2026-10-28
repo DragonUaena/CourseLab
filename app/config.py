@@ -74,6 +74,19 @@ class Settings(BaseSettings):
         "low",
         validation_alias=AliasChoices("COURSELAB_LLM_REASONING_EFFORT", "llm_reasoning_effort"),
     )
+    llm_fallback_model: str = Field(
+        "",
+        validation_alias=AliasChoices("COURSELAB_LLM_FALLBACK_MODEL", "llm_fallback_model"),
+    )
+    llm_rate_limit_cooldown_seconds: int = Field(
+        60,
+        ge=0,
+        le=3600,
+        validation_alias=AliasChoices(
+            "COURSELAB_LLM_RATE_LIMIT_COOLDOWN_SECONDS",
+            "llm_rate_limit_cooldown_seconds",
+        ),
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

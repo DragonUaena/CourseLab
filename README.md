@@ -240,6 +240,8 @@ CourseLab 从 `.env` 和进程环境变量读取配置。
 | `COURSELAB_PROMPT_SOURCE_CHARS` | `420` | 单个来源进入提示词的最大字符数 |
 | `COURSELAB_LLM_MAX_TOKENS` | `12000` | 单次模型输出与推理额度上限；上限不等于实际消耗 |
 | `COURSELAB_LLM_REASONING_EFFORT` | `low` | 推理模型的思考强度，支持 `minimal`、`low`、`medium`、`high` |
+| `COURSELAB_LLM_FALLBACK_MODEL` | 空 | 主模型返回 429 时自动切换的兼容模型 |
+| `COURSELAB_LLM_RATE_LIMIT_COOLDOWN_SECONDS` | `60` | 主模型限流后跳过它的冷却时间 |
 
 用户也可以在网页中配置自己的 Key。Key 会由后端加密保存，不会原样写入数据库或返回浏览器。
 保存后可勾选“清除 Key”移除当前账号的密钥；留空提交仍表示保留已有值。
@@ -379,6 +381,12 @@ npm run build
 推理模型的输出上限同时包含内部 reasoning 和最终 JSON。如果 `reasoning_tokens` 已等于
 `completion_tokens`，说明模型在写出报告前就用完了额度。默认上限已改为 12000，并对识别的
 推理模型使用低思考强度；仍失败时应提高 `COURSELAB_LLM_MAX_TOKENS` 或更换非推理模型。
+
+### 为什么生成很慢或反复出现 429？
+
+429 表示模型服务端通道达到并发或频率上限，不是报告算法在重算。配置
+`COURSELAB_LLM_FALLBACK_MODEL` 后，主模型限流会自动切换到同结构的备用模型；冷却期内
+后续任务会直接使用备用模型，避免重复撞击已限流通道。
 
 ## Contributing
 
