@@ -13,6 +13,8 @@ const form = reactive({
   llm_api_key: "",
   llm_model: "openai/gpt-4o-mini",
   llm_base_url: "",
+  clear_tavily_api_key: false,
+  clear_llm_api_key: false,
 });
 
 onMounted(async () => {
@@ -35,6 +37,8 @@ async function save() {
     status.value = await credentialApi.save(form);
     form.tavily_api_key = "";
     form.llm_api_key = "";
+    form.clear_tavily_api_key = false;
+    form.clear_llm_api_key = false;
     saved.value = true;
   } catch (exception) {
     error.value = exception.message;
@@ -59,11 +63,31 @@ async function save() {
       <form class="panel form-stack" @submit.prevent="save">
         <label class="field">
           <span>Tavily API Key {{ status?.tavily_configured ? "（已配置，留空则不修改）" : "" }}</span>
-          <input v-model.trim="form.tavily_api_key" type="password" autocomplete="off" placeholder="tvly-..." />
+          <input
+            v-model.trim="form.tavily_api_key"
+            type="password"
+            autocomplete="off"
+            placeholder="tvly-..."
+            :disabled="form.clear_tavily_api_key"
+          />
+        </label>
+        <label v-if="status?.tavily_configured" class="check-field">
+          <input v-model="form.clear_tavily_api_key" type="checkbox" />
+          <span>清除当前账号保存的 Tavily Key</span>
         </label>
         <label class="field">
           <span>大模型 API Key {{ status?.llm_configured ? "（已配置，留空则不修改）" : "" }}</span>
-          <input v-model.trim="form.llm_api_key" type="password" autocomplete="off" placeholder="sk-..." />
+          <input
+            v-model.trim="form.llm_api_key"
+            type="password"
+            autocomplete="off"
+            placeholder="sk-..."
+            :disabled="form.clear_llm_api_key"
+          />
+        </label>
+        <label v-if="status?.llm_configured" class="check-field">
+          <input v-model="form.clear_llm_api_key" type="checkbox" />
+          <span>清除当前账号保存的大模型 Key</span>
         </label>
         <label class="field">
           <span>模型名（LiteLLM 格式）</span>

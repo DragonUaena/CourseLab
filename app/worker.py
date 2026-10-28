@@ -1,11 +1,14 @@
 import logging
 import queue
 import threading
+import time
 from datetime import UTC, datetime
 
+from sqlalchemy import select
+
 from app.config import PROJECT_ROOT, Settings
-from app.course_crew import CourseCrew, audit_plan
-from app.credentials import CredentialCipher, MissingCredentialsError, resolve_credentials
+from app.course_crew import CourseCrew, GenerationCancelled, audit_plan
+from app.credentials import CredentialCipher, InvalidCredentialsError, MissingCredentialsError, resolve_credentials
 from app.database import Database
 from app.models import LearningPlan, utcnow
 from app.report import render_report
@@ -23,7 +26,29 @@ class CourseLabQueue:
         self.thread = threading.Thread(target=self._run, name="courselab-worker", daemon=True)
 
     def start(self) -> None:
+        self.recover_interrupted()
         self.thread.start()
+
+    def recover_interrupted(self) -> None:
+        with self.database.sessions() as session:
+            interrupted = list(session.scalars(select(LearningPlan).where(LearningPlan.status == "running")))
+            for plan in interrupted:
+                plan.status = "failed"
+                plan.stage = "生成中断"
+                plan.progress = 100
+                plan.error = "服务重启导致生成中断，请重新生成这份计划"
+                plan.updated_at = utcnow()
+                plan.completed_at = utcnow()
+            queued_ids = list(
+                session.scalars(
+                    select(LearningPlan.id).where(LearningPlan.status == "queued").order_by(LearningPlan.created_at)
+                )
+            )
+            session.commit()
+        if interrupted:
+            logger.warning("Marked %s interrupted plans as failed", len(interrupted))
+        for plan_id in queued_ids:
+            self.enqueue(plan_id)
 
     def stop(self) -> None:
         self.items.put(None)
@@ -47,10 +72,14 @@ class CourseLabQueue:
             if plan is None:
                 return
             try:
+                if plan.status != "queued":
+                    return
                 credentials = resolve_credentials(session, self.settings, self.cipher, plan.user_id)
                 plan.status = "running"
                 plan.stage = "Tavily 正在检索资料"
                 plan.progress = 12
+                plan.started_at = utcnow()
+                generation_started = time.monotonic()
                 session.commit()
                 profile = {
                     "topic": plan.topic,
@@ -61,39 +90,80 @@ class CourseLabQueue:
                     "language": plan.language,
                     "constraints": plan.constraints,
                 }
-                sources = TavilyResearcher(credentials.tavily_api_key).search(plan.topic, plan.goal, plan.language)
+                sources = TavilyResearcher(
+                    credentials.tavily_api_key,
+                    results_per_query=self.settings.tavily_results_per_query,
+                    max_sources=self.settings.tavily_max_sources,
+                ).search(plan.topic, plan.goal, plan.language)
+                if self._cancelled(session, plan):
+                    return
                 plan.stage = f"已检索 {len(sources)} 个来源，CrewAI 正在编排路线"
                 plan.progress = 38
                 session.commit()
-                crew_result = CourseCrew(credentials).generate(profile, sources)
+                crew_result = CourseCrew(
+                    credentials,
+                    max_tokens=self.settings.llm_max_tokens,
+                    prompt_source_chars=self.settings.prompt_source_chars,
+                    cancel_check=lambda: self._cancelled_in_database(plan_id),
+                ).generate(profile, sources)
+                if self._cancelled(session, plan):
+                    return
                 plan.stage = "独立 Agent 正在审查计划可用性"
                 plan.progress = 82
                 session.commit()
                 audit = audit_plan(profile, crew_result.roadmap, crew_result.resources)
                 evaluation = CourseCrew.blend_evaluation(crew_result.evaluation, audit)
+                if self._cancelled(session, plan):
+                    return
                 plan.roadmap = crew_result.roadmap
                 plan.resources = crew_result.resources
                 plan.evaluation = evaluation
                 plan.model_name = credentials.llm_model
-                plan.report_markdown = render_report(profile, crew_result.roadmap, crew_result.resources, evaluation)
+                plan.token_usage = crew_result.token_usage
+                completed_at = datetime.now(UTC)
+                generation_seconds = round(time.monotonic() - generation_started, 1)
+                plan.report_markdown = render_report(
+                    profile,
+                    crew_result.roadmap,
+                    crew_result.resources,
+                    evaluation,
+                    generation_seconds=generation_seconds,
+                    token_usage=crew_result.token_usage,
+                )
                 plan.status = "completed"
                 plan.stage = "计划生成完成"
                 plan.progress = 100
-                plan.completed_at = datetime.now(UTC)
+                plan.completed_at = completed_at
                 session.commit()
-            except MissingCredentialsError as exc:
+            except GenerationCancelled:
+                return
+            except (InvalidCredentialsError, MissingCredentialsError) as exc:
                 self._fail(session, plan, str(exc))
             except Exception as exc:
                 logger.exception("CourseLab generation failed for plan %s", plan_id)
                 self._fail(session, plan, f"生成失败：{str(exc)[:500]}")
 
+    def _cancelled_in_database(self, plan_id: str) -> bool:
+        with self.database.sessions() as session:
+            status = session.scalar(select(LearningPlan.status).where(LearningPlan.id == plan_id))
+        return status == "cancelled"
+
+    @staticmethod
+    def _cancelled(session, plan: LearningPlan) -> bool:
+        session.refresh(plan)
+        return plan.status == "cancelled"
+
     @staticmethod
     def _fail(session, plan: LearningPlan, message: str) -> None:
+        session.refresh(plan)
+        if plan.status == "cancelled":
+            return
         plan.status = "failed"
         plan.stage = "生成中断"
         plan.error = message
         plan.progress = 100
         plan.updated_at = utcnow()
+        plan.completed_at = utcnow()
         session.commit()
 
 

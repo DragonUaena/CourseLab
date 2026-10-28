@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.course_crew import audit_plan
 from app.report import render_report
 
@@ -24,6 +26,18 @@ DEMO_ROADMAP = {
             "practice": "实现一个带路径参数和查询参数的书目 API",
             "deliverable": "可交互的 5 个接口",
             "resource_ids": ["S1", "S2"],
+            "objectives": [
+                "能解释一次 FastAPI 请求从路由到响应模型的完整路径",
+                "能独立写出带路径参数、查询参数和错误响应的接口",
+            ],
+            "schedule": [
+                {"period": "第 1 周前半", "focus": "路由、参数与自动文档", "output": "3 个可调用接口"},
+                {"period": "第 1 周后半", "focus": "请求体、响应模型与错误处理", "output": "2 个带校验的接口"},
+            ],
+            "acceptance_criteria": [
+                "Swagger 页面能完成 5 个接口的正常与错误请求",
+                "至少覆盖一个字段校验失败并返回清晰错误信息",
+            ],
         },
         {
             "name": "项目结构与持久化",
@@ -33,6 +47,19 @@ DEMO_ROADMAP = {
             "practice": "将书目 API 改造成 SQLite 持久化版本",
             "deliverable": "带数据层和统一错误格式的 API",
             "resource_ids": ["S3", "S4"],
+            "objectives": [
+                "能按路由、模型、数据和配置拆分 FastAPI 应用",
+                "能用 SQLAlchemy 会话完成带事务边界的增删改查",
+            ],
+            "schedule": [
+                {"period": "第 2 周", "focus": "SQLAlchemy 模型、会话与 CRUD", "output": "持久化书目 CRUD"},
+                {"period": "第 3 周前半", "focus": "分层结构与依赖注入", "output": "可维护的模块化项目"},
+                {"period": "第 3 周后半", "focus": "异常处理与接口回归", "output": "统一错误格式和测试记录"},
+            ],
+            "acceptance_criteria": [
+                "服务重启后已创建的书目仍然存在",
+                "数据库异常与资源不存在使用一致的错误响应",
+            ],
         },
         {
             "name": "安全与真实业务流",
@@ -42,6 +69,18 @@ DEMO_ROADMAP = {
             "practice": "增加注册登录和用户专属书目",
             "deliverable": "多用户隔离 API",
             "resource_ids": ["S5", "S6"],
+            "objectives": [
+                "能安全保存密码并签发有时效的访问令牌",
+                "能验证接口不会向其他用户暴露数据",
+            ],
+            "schedule": [
+                {"period": "第 4 周前半", "focus": "密码哈希与登录接口", "output": "注册、登录和当前用户接口"},
+                {"period": "第 4 周后半", "focus": "JWT 依赖与用户隔离", "output": "双账号隔离的测试报告"},
+            ],
+            "acceptance_criteria": [
+                "数据库中不存在明文密码",
+                "用户 B 无法读取、修改或删除用户 A 的书目",
+            ],
         },
         {
             "name": "测试、部署与交付",
@@ -51,6 +90,19 @@ DEMO_ROADMAP = {
             "practice": "编写核心接口测试并完成容器启动",
             "deliverable": "可通过 Docker 启动并附测试报告的完整项目",
             "resource_ids": ["S7", "S8"],
+            "objectives": [
+                "能用自动化测试验证鉴权与核心业务路径",
+                "能通过环境变量和容器完成可重复部署",
+            ],
+            "schedule": [
+                {"period": "第 5 周", "focus": "正常、失败与权限测试", "output": "覆盖核心接口的 pytest 套件"},
+                {"period": "第 6 周前半", "focus": "镜像、环境变量与启动检查", "output": "可运行的 Docker 镜像"},
+                {"period": "第 6 周后半", "focus": "验收、README 与故障演练", "output": "可复现的交付包"},
+            ],
+            "acceptance_criteria": [
+                "新环境按 README 可在首次尝试内启动服务",
+                "完整测试套件连续运行三次均通过",
+            ],
         },
     ],
     "learning_outcomes": [
@@ -61,6 +113,17 @@ DEMO_ROADMAP = {
         "能够用 Docker 和环境变量完成本地部署",
     ],
     "final_project": "交付一个带用户账号、书目管理、接口测试和 Dockerfile 的 FastAPI 服务，并在 README 中写清启动、测试和接口示例。",
+    "study_strategy": [
+        "每个知识点都用一个可运行接口或测试验证，不以阅读完成作为学习终点。",
+        "每阶段保留一个可回退的最小示例，出现阻塞时先缩小问题范围。",
+        "每周结束记录已完成交付、未解决问题和下一周第一项行动。",
+    ],
+    "project_requirements": [
+        "实现注册、登录和按用户隔离的书目 CRUD。",
+        "为核心成功场景、校验失败和越权访问编写自动化测试。",
+        "提供 Dockerfile、环境变量示例、启动命令和测试命令。",
+        "在 README 中列出验收步骤和已知限制。",
+    ],
 }
 
 DEMO_RESOURCES = [
@@ -161,6 +224,10 @@ DEMO_RESOURCES = [
         "relevance": 84,
     },
 ]
+
+for _resource in DEMO_RESOURCES:
+    _resource["retrieved_at"] = date.today().isoformat()
+    _resource.setdefault("published_date", "")
 
 _audit = audit_plan(DEMO_PROFILE, DEMO_ROADMAP, DEMO_RESOURCES)
 DEMO_EVALUATION = {

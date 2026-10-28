@@ -15,8 +15,29 @@ const tabs = computed(() => [
   { id: "review", label: "审查建议", count: props.report.evaluation.issues.length },
 ]);
 
+const generationTime = computed(() => {
+  const started = props.report.profile.started_at;
+  const completed = props.report.profile.completed_at;
+  if (!started || !completed) return "";
+  const seconds = Math.max(0, Math.round((new Date(completed).getTime() - new Date(started).getTime()) / 1000));
+  if (!Number.isFinite(seconds)) return "";
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes} 分 ${seconds % 60} 秒` : `${seconds} 秒`;
+});
+
+const tokenUsage = computed(() => {
+  const total = props.report.profile.token_usage?.total_tokens;
+  return total ? `${Number(total).toLocaleString("zh-CN")} tokens` : "";
+});
+
 function resourceById(id) {
   return props.report.resources.find((resource) => resource.id === id);
+}
+
+function freshness(resource) {
+  if (resource.published_date) return `发布于 ${resource.published_date}`;
+  if (resource.retrieved_at) return `检索于 ${resource.retrieved_at}`;
+  return "日期未记录";
 }
 </script>
 
@@ -43,6 +64,14 @@ function resourceById(id) {
           <span>计划结论</span>
           <strong>{{ report.evaluation.verdict === "recommended" ? "建议执行" : "建议修订" }}</strong>
         </div>
+        <div v-if="generationTime">
+          <span>生成耗时</span>
+          <strong>{{ generationTime }}</strong>
+        </div>
+        <div v-if="tokenUsage">
+          <span>模型用量</span>
+          <strong>{{ tokenUsage }}</strong>
+        </div>
       </div>
     </header>
 
@@ -63,22 +92,43 @@ function resourceById(id) {
             <div class="topic-list">
               <span v-for="topic in stage.topics" :key="topic">{{ topic }}</span>
             </div>
+            <div v-if="stage.objectives?.length" class="stage-block">
+              <strong>学习目标</strong>
+              <ul>
+                <li v-for="item in stage.objectives" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div v-if="stage.schedule?.length" class="schedule-list">
+              <div v-for="item in stage.schedule" :key="`${item.period}-${item.focus}`" class="schedule-item">
+                <span>{{ item.period }}</span>
+                <strong>{{ item.focus }}</strong>
+                <p>{{ item.output }}</p>
+              </div>
+            </div>
             <div class="stage-details">
               <span><strong>练习</strong>　{{ stage.practice }}</span>
               <span><strong>交付</strong>　{{ stage.deliverable }}</span>
-              <span>
-                <strong>资料</strong>　
-                <a
-                  v-for="resourceId in stage.resource_ids"
-                  :key="resourceId"
-                  class="resource-link"
-                  :href="resourceById(resourceId)?.url"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {{ resourceId }}
-                </a>
-              </span>
+            </div>
+            <div v-if="stage.acceptance_criteria?.length" class="stage-block">
+              <strong>验收标准</strong>
+              <ul>
+                <li v-for="item in stage.acceptance_criteria" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div class="evidence-list">
+              <strong class="evidence-title">阶段依据</strong>
+              <a
+                v-for="resourceId in stage.resource_ids"
+                :key="resourceId"
+                class="evidence-item"
+                :href="resourceById(resourceId)?.url"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <span>{{ resourceId }} · {{ resourceById(resourceId)?.resource_type }}</span>
+                <strong>{{ resourceById(resourceId)?.title }}</strong>
+                <small>{{ resourceById(resourceId)?.reason }}</small>
+              </a>
             </div>
           </div>
         </div>
@@ -93,7 +143,16 @@ function resourceById(id) {
           <section>
             <h3>最终交付</h3>
             <p>{{ report.roadmap.final_project }}</p>
+            <ul v-if="report.roadmap.project_requirements?.length">
+              <li v-for="item in report.roadmap.project_requirements" :key="item">{{ item }}</li>
+            </ul>
           </section>
+        </div>
+        <div v-if="report.roadmap.study_strategy?.length" class="strategy-note">
+          <h3>执行策略</h3>
+          <ul>
+            <li v-for="item in report.roadmap.study_strategy" :key="item">{{ item }}</li>
+          </ul>
         </div>
       </section>
 
@@ -140,7 +199,7 @@ function resourceById(id) {
               rel="noreferrer"
             >
               <strong>{{ resource.id }}　{{ resource.title }}</strong>
-              <span>{{ resource.provider }} · {{ resource.resource_type }}</span>
+              <span>{{ resource.provider }} · {{ resource.resource_type }} · {{ freshness(resource) }}</span>
               <p class="resource-reason">{{ resource.reason }}</p>
             </a>
           </div>

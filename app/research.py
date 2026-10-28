@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from urllib.parse import urlparse
 
 from tavily import TavilyClient
@@ -37,12 +38,12 @@ def _language_code(language: str) -> str | None:
     return aliases.get(normalized, normalized)
 
 
-def _search_one(client: TavilyClient, query: str, language: str) -> list[dict]:
+def _search_one(client: TavilyClient, query: str, language: str, results_per_query: int) -> list[dict]:
     language_code = _language_code(language)
     parameters = {
         "query": query,
         "search_depth": "advanced",
-        "max_results": 5,
+        "max_results": results_per_query,
         "include_answer": False,
         "include_raw_content": False,
         "include_favicon": True,
@@ -56,20 +57,29 @@ def _search_one(client: TavilyClient, query: str, language: str) -> list[dict]:
 
 
 class TavilyResearcher:
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, results_per_query: int = 4, max_sources: int = 12) -> None:
         self.client = TavilyClient(api_key=api_key)
+        self.results_per_query = results_per_query
+        self.max_sources = max_sources
 
     def search(self, topic: str, goal: str, language: str) -> list[dict]:
+        current_year = date.today().year
         queries = [
-            f"{topic} 官方文档 official documentation",
-            f"{topic} 入门教程 系统课程",
+            f"{topic} 官方文档 official documentation current version",
+            f"{topic} 入门教程 系统课程 {current_year}",
             f"{topic} 项目实战 hands-on project",
-            f"{topic} {goal} learning path",
+            f"{topic} {goal[:180]} learning path",
         ]
         with ThreadPoolExecutor(max_workers=4) as executor:
-            batches = list(executor.map(lambda query: _search_one(self.client, query, language), queries))
+            batches = list(
+                executor.map(
+                    lambda query: _search_one(self.client, query, language, self.results_per_query),
+                    queries,
+                )
+            )
         sources: list[dict] = []
         seen: set[str] = set()
+        retrieved_at = date.today().isoformat()
         for result in (item for batch in batches for item in batch):
             url = result.get("url", "")
             if not url.startswith(("http://", "https://")) or url in seen:
@@ -81,12 +91,14 @@ class TavilyResearcher:
                     "id": f"S{len(sources) + 1}",
                     "title": title[:240],
                     "url": url,
-                    "snippet": result.get("content", "")[:1400],
+                    "snippet": result.get("content", "")[:800],
                     "provider": urlparse(url).netloc,
                     "score": float(result.get("score", 0)),
                     "resource_type": _resource_type(title, url),
+                    "published_date": str(result.get("published_date") or ""),
+                    "retrieved_at": retrieved_at,
                 }
             )
         if not sources:
             raise RuntimeError("Tavily 没有返回可用资料，请调整学习主题后重试")
-        return sources[:16]
+        return sources[: self.max_sources]

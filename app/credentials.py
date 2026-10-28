@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import UserCredential
+from app.validation import normalize_http_url
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,10 @@ class RuntimeCredentials:
 
 
 class MissingCredentialsError(RuntimeError):
+    pass
+
+
+class InvalidCredentialsError(RuntimeError):
     pass
 
 
@@ -55,11 +60,16 @@ def resolve_credentials(
     user_id: str,
 ) -> RuntimeCredentials:
     stored = stored_credentials(session, user_id, cipher)
+    llm_base_url = stored.get("llm_base_url", "") or settings.openai_api_base
+    try:
+        llm_base_url = normalize_http_url(llm_base_url, "模型接口地址")
+    except ValueError as exc:
+        raise InvalidCredentialsError(str(exc)) from exc
     values = RuntimeCredentials(
         tavily_api_key=stored.get("tavily_api_key", "") or settings.tavily_api_key,
         llm_api_key=stored.get("llm_api_key", "") or settings.openai_api_key,
         llm_model=stored.get("llm_model", "") or settings.llm_model,
-        llm_base_url=stored.get("llm_base_url", "") or settings.openai_api_base,
+        llm_base_url=llm_base_url,
     )
     missing = []
     if not values.tavily_api_key:

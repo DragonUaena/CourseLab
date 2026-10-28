@@ -46,6 +46,30 @@ class Settings(BaseSettings):
         "openai/gpt-4o-mini",
         validation_alias=AliasChoices("COURSELAB_LLM_MODEL", "LLM_MODEL", "llm_model"),
     )
+    tavily_results_per_query: int = Field(
+        4,
+        ge=1,
+        le=10,
+        validation_alias=AliasChoices("COURSELAB_TAVILY_RESULTS_PER_QUERY", "tavily_results_per_query"),
+    )
+    tavily_max_sources: int = Field(
+        12,
+        ge=5,
+        le=30,
+        validation_alias=AliasChoices("COURSELAB_TAVILY_MAX_SOURCES", "tavily_max_sources"),
+    )
+    prompt_source_chars: int = Field(
+        420,
+        ge=200,
+        le=1400,
+        validation_alias=AliasChoices("COURSELAB_PROMPT_SOURCE_CHARS", "prompt_source_chars"),
+    )
+    llm_max_tokens: int = Field(
+        4096,
+        ge=1000,
+        le=12000,
+        validation_alias=AliasChoices("COURSELAB_LLM_MAX_TOKENS", "llm_max_tokens"),
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

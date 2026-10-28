@@ -3,9 +3,9 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import desc, select
 
 from app.auth import CurrentUser, DbSession, create_access_token, hash_password, verify_password
-from app.credentials import MissingCredentialsError, resolve_credentials, stored_credentials
+from app.credentials import InvalidCredentialsError, MissingCredentialsError, resolve_credentials, stored_credentials
 from app.demo_data import get_demo
-from app.models import LearningPlan, User, UserCredential
+from app.models import LearningPlan, User, UserCredential, utcnow
 from app.schemas import (
     CredentialsStatus,
     CredentialsUpdate,
@@ -73,9 +73,14 @@ def credential_status(user: CurrentUser, request: Request, session: DbSession):
 def save_credentials(payload: CredentialsUpdate, user: CurrentUser, request: Request, session: DbSession):
     cipher = request.app.state.cipher
     current = stored_credentials(session, user.id, cipher)
-    for field in ("tavily_api_key", "llm_api_key"):
-        if getattr(payload, field):
-            current[field] = getattr(payload, field).strip()
+    if payload.clear_tavily_api_key:
+        current.pop("tavily_api_key", None)
+    elif payload.tavily_api_key:
+        current["tavily_api_key"] = payload.tavily_api_key.strip()
+    if payload.clear_llm_api_key:
+        current.pop("llm_api_key", None)
+    elif payload.llm_api_key:
+        current["llm_api_key"] = payload.llm_api_key.strip()
     current["llm_model"] = payload.llm_model.strip()
     current["llm_base_url"] = payload.llm_base_url.strip()
     record = session.scalar(select(UserCredential).where(UserCredential.user_id == user.id))
@@ -91,7 +96,7 @@ def save_credentials(payload: CredentialsUpdate, user: CurrentUser, request: Req
 def create_plan(payload: PlanCreate, user: CurrentUser, request: Request, session: DbSession):
     try:
         resolve_credentials(session, request.app.state.settings, request.app.state.cipher, user.id)
-    except MissingCredentialsError as exc:
+    except (InvalidCredentialsError, MissingCredentialsError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     plan = LearningPlan(user_id=user.id, **payload.model_dump())
     session.add(plan)
@@ -128,8 +133,33 @@ def retry_plan(plan_id: str, user: CurrentUser, request: Request, session: DbSes
     plan.stage = "等待生成"
     plan.progress = 0
     plan.error = None
+    plan.roadmap = None
+    plan.resources = None
+    plan.evaluation = None
+    plan.report_markdown = None
+    plan.model_name = None
+    plan.cost_usd = None
+    plan.token_usage = None
+    plan.started_at = None
+    plan.completed_at = None
     session.commit()
     request.app.state.worker.enqueue(plan.id)
+    return plan
+
+
+@router.post("/plans/{plan_id}/stop", response_model=PlanResponse)
+def stop_plan(plan_id: str, user: CurrentUser, session: DbSession):
+    plan = session.scalar(select(LearningPlan).where(LearningPlan.id == plan_id, LearningPlan.user_id == user.id))
+    if plan is None:
+        raise HTTPException(status_code=404, detail="学习计划不存在")
+    if plan.status not in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="计划已经结束，无需停止")
+    interrupted_stage = plan.stage
+    plan.status = "cancelled"
+    plan.stage = "已停止生成"
+    plan.error = f"生成已由用户停止（停止于：{interrupted_stage}）"
+    plan.completed_at = utcnow()
+    session.commit()
     return plan
 
 
@@ -138,6 +168,8 @@ def delete_plan(plan_id: str, user: CurrentUser, session: DbSession):
     plan = session.scalar(select(LearningPlan).where(LearningPlan.id == plan_id, LearningPlan.user_id == user.id))
     if plan is None:
         raise HTTPException(status_code=404, detail="学习计划不存在")
+    if plan.status in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="请先停止正在生成的计划")
     session.delete(plan)
     session.commit()
 

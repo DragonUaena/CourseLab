@@ -52,9 +52,11 @@ CourseLab 使用 CrewAI 编排多个专职 Agent，通过 Tavily 获取实时搜
 | 独立计划审查 | 审查 Agent 从目标匹配、学习顺序、工作量、资料质量和可执行性五个维度评分 |
 | 程序化质量检查 | 自动检查阶段资料覆盖、周数一致性、引用数量和综合项目完整性 |
 | 多用户隔离 | JWT 身份认证，所有计划通过用户 ID 在服务端强制隔离 |
-| 密钥安全 | Tavily 和模型 API Key 使用 Fernet 加密后保存 |
-| 异步任务 | 搜索、编排、审查在后台队列中执行，页面实时展示生成进度 |
-| 报告导出 | 将路线、阶段安排、评测结果和引用资料导出为 Markdown |
+| 密钥安全 | Tavily 和模型 API Key 使用 Fernet 加密后保存，并可随时清除 |
+| 异步任务 | 搜索、编排、审查在后台队列中执行，页面实时展示进度和耗时，并支持主动停止 |
+| 详细报告 | 包含阶段目标、分步安排、验收标准、项目要求、来源依据和审查结论 |
+| 用量控制 | 限制检索来源数和输入片段，避免重复投喂原始资料，并记录实际 token |
+| 报告导出 | 将详细路线、评测结果、来源元数据和引用资料导出为 Markdown |
 | 零费用演示 | 内置完整演示报告，不调用 Tavily 或大模型 |
 
 ## 系统架构
@@ -212,8 +214,11 @@ npm run dev
 2. 填写想学习的主题、最终目标、当前基础和资料语言。
 3. 设置每周可投入小时数与计划周期。
 4. 提交后等待资料检索、路线编排和计划审查完成。
-5. 在报告中切换查看资料索引、质量检查和审查建议。
-6. 下载 Markdown 报告或保留在个人路线列表中。
+5. 生成期间会实时显示计时；不需要继续时可点击“停止生成”。
+6. 在报告中查看分阶段计划、验收标准、阶段资料依据、质量检查和审查建议。
+7. 下载 Markdown 报告或保留在个人路线列表中。
+
+停止会立即把任务标记为已停止，并在当前 Agent 步骤结束时终止后续步骤。已经发出的单次模型或 Tavily 请求无法撤回，但后续步骤不会再消耗 token。
 
 ## 配置
 
@@ -230,8 +235,13 @@ CourseLab 从 `.env` 和进程环境变量读取配置。
 | `OPENAI_API_KEY` | 空 | 可选的共享模型默认 Key |
 | `OPENAI_API_BASE` | 空 | OpenAI 兼容接口地址 |
 | `COURSELAB_LLM_MODEL` | `openai/gpt-4o-mini` | LiteLLM 模型名 |
+| `COURSELAB_TAVILY_RESULTS_PER_QUERY` | `4` | 每路 Tavily 检索返回数量 |
+| `COURSELAB_TAVILY_MAX_SOURCES` | `12` | 去重后最多保留的来源数量 |
+| `COURSELAB_PROMPT_SOURCE_CHARS` | `420` | 单个来源进入提示词的最大字符数 |
+| `COURSELAB_LLM_MAX_TOKENS` | `4096` | 单次模型输出上限 |
 
 用户也可以在网页中配置自己的 Key。Key 会由后端加密保存，不会原样写入数据库或返回浏览器。
+保存后可勾选“清除 Key”移除当前账号的密钥；留空提交仍表示保留已有值。
 
 ## API
 
@@ -246,7 +256,8 @@ CourseLab 从 `.env` 和进程环境变量读取配置。
 | `POST` | `/api/plans` | 创建学习计划任务 |
 | `GET` | `/api/plans` | 获取当前用户的学习计划 |
 | `GET` | `/api/plans/{id}` | 获取计划详情和生成进度 |
-| `POST` | `/api/plans/{id}/retry` | 重新生成失败计划 |
+| `POST` | `/api/plans/{id}/retry` | 重新生成已结束计划 |
+| `POST` | `/api/plans/{id}/stop` | 停止排队或生成中的计划 |
 | `DELETE` | `/api/plans/{id}` | 删除计划 |
 | `GET` | `/api/plans/{id}/report` | 下载 Markdown 报告 |
 | `GET` | `/api/demo` | 获取无 API 演示报告 |
@@ -268,6 +279,7 @@ CourseLab/
 │   ├── research.py         # Tavily 检索
 │   ├── worker.py           # 后台生成队列
 │   └── main.py             # 应用入口
+├── migrations/             # Alembic 数据库迁移
 ├── frontend/
 │   ├── src/components/     # 应用外壳与报告组件
 │   ├── src/views/          # 登录、路线、测评和设置页面
@@ -283,6 +295,8 @@ CourseLab/
 ## 数据与安全
 
 - 默认数据库位于 `data/courselab.db`，已加入 `.gitignore`。
+- 应用启动时自动运行 Alembic 迁移；已有旧版数据库会自动建立版本基线。
+- SQLite 连接默认启用外键约束，删除用户时可级联清理账号数据。
 - 每个学习计划关联唯一用户 ID，所有查询在服务端强制限定当前用户。
 - 用户密码使用 Argon2 哈希，不保存明文。
 - API Key 使用 Fernet 加密，前端只能查看“是否已配置”，不能读取原值。
@@ -293,8 +307,8 @@ CourseLab/
 
 ```powershell
 .\.venv\Scripts\pytest.exe -q
-.\.venv\Scripts\ruff.exe check app tests
-.\.venv\Scripts\ruff.exe format --check app tests
+.\.venv\Scripts\ruff.exe check app tests migrations
+.\.venv\Scripts\ruff.exe format --check app tests migrations
 ```
 
 ```bash
@@ -306,12 +320,23 @@ npm run build
 
 - 用户注册、登录与学习计划隔离
 - API Key 加密与脱敏
+- API Key 主动清除与模型接口地址校验
 - 缺少 Key 时的失败处理
 - Tavily 语言参数转换
 - 阶段周数归一化
-- 资料覆盖和计划可用性审计
+- 资料去重、数量限制和计划可用性审计
+- 服务重启后的排队任务恢复与运行任务终结
+- 停止生成、重试清理旧结果、报告下载和任务删除
+- 生成耗时、token 用量、详细路线结构和来源元数据
+- Alembic 建表与 SQLite 外键约束
 - 演示报告结构
 - `COURSELAB_*` 环境变量兼容性
+
+手动创建后续迁移：
+
+```powershell
+.\.venv\Scripts\alembic.exe revision --autogenerate -m "describe change"
+```
 
 ## Roadmap
 

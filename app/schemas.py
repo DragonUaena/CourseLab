@@ -1,7 +1,12 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator, model_validator
+
+from app.validation import normalize_http_url
+
+Language = Literal["中文", "英文", "中英混合"]
+PlanStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 
 class RegisterRequest(BaseModel):
@@ -36,7 +41,7 @@ class PlanCreate(BaseModel):
     level: Literal["零基础", "入门", "进阶", "项目实战"]
     weekly_hours: int = Field(ge=1, le=40)
     duration_weeks: int = Field(ge=1, le=52)
-    language: str = Field(default="中文", max_length=30)
+    language: Language = "中文"
     constraints: str = Field(default="", max_length=1000)
 
     @field_validator("topic", "goal", "constraints")
@@ -54,20 +59,29 @@ class PlanResponse(BaseModel):
     level: str
     weekly_hours: int
     duration_weeks: int
-    language: str
+    language: Language
     constraints: str
-    status: str
+    status: PlanStatus
     stage: str
-    progress: int
+    progress: int = Field(ge=0, le=100)
     error: str | None
     roadmap: dict | None
     resources: list | None
     evaluation: dict | None
     model_name: str | None
     cost_usd: float | None
+    token_usage: dict | None
     created_at: datetime
     updated_at: datetime
+    started_at: datetime | None
     completed_at: datetime | None
+
+    @field_validator("created_at", "updated_at", "started_at", "completed_at", mode="before")
+    @classmethod
+    def attach_utc(cls, value: datetime | None) -> datetime | None:
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 class CredentialsUpdate(BaseModel):
@@ -75,6 +89,29 @@ class CredentialsUpdate(BaseModel):
     llm_api_key: str = ""
     llm_model: str = Field(default="openai/gpt-4o-mini", min_length=3, max_length=200)
     llm_base_url: str = ""
+    clear_tavily_api_key: bool = False
+    clear_llm_api_key: bool = False
+
+    @field_validator("tavily_api_key", "llm_api_key")
+    @classmethod
+    def strip_keys(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        return normalize_http_url(value, "模型接口地址")
+
+    @model_validator(mode="after")
+    def validate_clear_flags(self):
+        conflicts = []
+        if self.clear_tavily_api_key and self.tavily_api_key:
+            conflicts.append("Tavily API Key")
+        if self.clear_llm_api_key and self.llm_api_key:
+            conflicts.append("大模型 API Key")
+        if conflicts:
+            raise ValueError(f"不能同时填写并清除：{'、'.join(conflicts)}")
+        return self
 
 
 class CredentialsStatus(BaseModel):
@@ -95,6 +132,12 @@ class Source(BaseModel):
     resource_type: str = "文档"
 
 
+class ScheduleItem(BaseModel):
+    period: str
+    focus: str
+    output: str
+
+
 class Stage(BaseModel):
     name: str
     weeks: int = Field(ge=1)
@@ -103,6 +146,9 @@ class Stage(BaseModel):
     practice: str
     deliverable: str
     resource_ids: list[str]
+    objectives: list[str] = Field(default_factory=list)
+    schedule: list[ScheduleItem] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
 
 
 class Roadmap(BaseModel):
@@ -112,6 +158,8 @@ class Roadmap(BaseModel):
     stages: list[Stage]
     learning_outcomes: list[str]
     final_project: str
+    study_strategy: list[str] = Field(default_factory=list)
+    project_requirements: list[str] = Field(default_factory=list)
 
 
 class EvaluationDimension(BaseModel):

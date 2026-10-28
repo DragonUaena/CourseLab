@@ -18,7 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        database.create_all()
+        database.migrate()
         worker.start()
         yield
         worker.stop()

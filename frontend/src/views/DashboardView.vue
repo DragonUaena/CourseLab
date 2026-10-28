@@ -9,7 +9,13 @@ const loading = ref(true);
 const error = ref("");
 const completed = computed(() => plans.value.filter((plan) => plan.status === "completed").length);
 const generating = computed(() => plans.value.filter((plan) => ["queued", "running"].includes(plan.status)).length);
-const statusText = { queued: "排队中", running: "生成中", completed: "已完成", failed: "需重试" };
+const statusText = {
+  queued: "排队中",
+  running: "生成中",
+  completed: "已完成",
+  failed: "需重试",
+  cancelled: "已停止",
+};
 
 onMounted(async () => {
   try {

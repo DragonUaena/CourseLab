@@ -49,6 +49,7 @@ export const planApi = {
   create: (payload) => request("/api/plans", { method: "POST", body: JSON.stringify(payload) }),
   get: (id) => request(`/api/plans/${id}`),
   retry: (id) => request(`/api/plans/${id}/retry`, { method: "POST" }),
+  stop: (id) => request(`/api/plans/${id}/stop`, { method: "POST" }),
   remove: (id) => request(`/api/plans/${id}`, { method: "DELETE" }),
 };
 
